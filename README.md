@@ -71,7 +71,7 @@ You need a jailbroken Kindle with FBInk, which current jailbreaks such as [Spide
 
 The Kindle UI steps aside and the dashboard takes the whole screen, refreshing every `INTERVAL` seconds, with a full refresh every `FULL_REFRESH_EVERY` updates to clear ghosting. If the server cannot be reached, the last frame stays and a small line at the bottom says so.
 
-**Press the power button to stop it** and get the normal Kindle UI back. Over SSH: `sh /mnt/us/nodedesk-eink/dashboard.sh stop`. For a one-shot test frame: `dashboard.sh once`. Logs go to `/tmp/nodedesk-eink.log`.
+**Press the power button to stop it** and get the normal Kindle UI back: the screen goes blank with "Back to the Kindle...", and the Home screen returns after about a minute, which is how long the Kindle UI takes to boot. The button is read straight from its input device, since the Kindle's `powerd` does not report presses while the UI is down. Over SSH: `sh /mnt/us/nodedesk-eink/dashboard.sh stop`. For a one-shot test frame: `dashboard.sh once`. Logs go to `/tmp/nodedesk-eink.log`.
 
 The Kindle stays awake while the dashboard runs, so keep it plugged in for 24/7 use.
 

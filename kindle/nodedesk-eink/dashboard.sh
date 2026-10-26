@@ -61,6 +61,11 @@ fetch() {
 }
 
 run() {
+    # Take the screen from the Kindle UI. Done here, not in start, because
+    # stopping the UI also kills the Library launcher that called start.
+    lipc-set-prop com.lab126.powerd preventScreenSaver 1
+    initctl stop lab126_gui > /dev/null 2>&1
+    sleep 3 # let the framework release the screen
     screen_size
     log "start ${WIDTH}x${HEIGHT} every ${INTERVAL}s from $SERVER"
     n=0
@@ -76,13 +81,28 @@ run() {
     done
 }
 
-# Stop when the power button is pressed. The GUI is down, so powerd only
-# reports the event; nobody draws the screensaver.
+# The input device of the power key, e.g. /dev/input/event0 ("bd71828-pwrkey").
+power_key() {
+    for d in /sys/class/input/event*; do
+        case "$(cat "$d/device/name" 2>/dev/null)" in
+            *pwrkey* | *power* | *Power*) echo "/dev/input/${d##*/}"; return ;;
+        esac
+    done
+}
+
+# Stop on the first power key event. With the UI down powerd does not report
+# the press, so read the key device directly (one input_event is 16 bytes).
 watch_power() {
-    lipc-wait-event com.lab126.powerd goingToScreenSaver,outOfScreenSaver > /dev/null 2>&1 && sh "$0" stop
+    key=$(power_key)
+    [ -n "$key" ] || { log "power key not found, use: $0 stop"; return 1; }
+    dd if="$key" of=/dev/null bs=16 count=1 2> /dev/null || return 1
+    log "power key pressed"
+    setsid sh "$0" stop < /dev/null > /dev/null 2>&1
 }
 
 running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+gui_stopped() { initctl status lab126_gui 2>/dev/null | grep -q stop/; }
 
 start_dashboard() {
     if running; then
@@ -90,23 +110,47 @@ start_dashboard() {
         return 0
     fi
     : > "$LOG"
-    lipc-set-prop com.lab126.powerd preventScreenSaver 1
-    initctl stop lab126_gui > /dev/null 2>&1
-    sleep 3 # let the framework release the screen
+    # setsid makes each job its own process group, so stop can end it with
+    # everything it spawned (sleep, dd, curl).
     setsid sh "$0" run < /dev/null >> "$LOG" 2>&1 &
     echo $! > "$PIDFILE"
-    setsid sh "$0" watch < /dev/null > /dev/null 2>&1 &
+    setsid sh "$0" watch < /dev/null >> "$LOG" 2>&1 &
     echo $! > "$PIDFILE.watch"
 }
 
 stop_dashboard() {
     for f in "$PIDFILE" "$PIDFILE.watch"; do
-        [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null
+        [ -f "$f" ] && kill -TERM -"$(cat "$f")" 2>/dev/null
         rm -f "$f"
     done
     log "stop"
     lipc-set-prop com.lab126.powerd preventScreenSaver 0
+    gui_stopped || return 0
+    if [ -n "$FBINK" ]; then
+        "$FBINK" -q -c -f
+        if [ "$LANGUAGE" = pt ]; then msg="Voltando para o Kindle..."; else msg="Back to the Kindle..."; fi
+        "$FBINK" -q -m -M "$msg"
+    else
+        eips -c
+    fi
     initctl start lab126_gui > /dev/null 2>&1
+    setsid sh "$0" repaint < /dev/null > /dev/null 2>&1 &
+}
+
+# The UI takes about a minute to come back. Xorg kept running the whole time
+# and never saw the dashboard, so it may skip repainting some areas. Once the
+# UI has drawn its status bar (the top rows are no longer blank), ask every
+# window to repaint.
+repaint() {
+    i=0
+    while [ "$(dd if=/dev/fb0 bs="$WIDTH" count=80 2> /dev/null | tr -d '\377' | wc -c)" -lt 500 ]; do
+        i=$((i + 1))
+        [ $i -gt 60 ] && break
+        sleep 2
+    done
+    sleep 5
+    DISPLAY=:0 xrefresh > /dev/null 2>&1
+    log "UI back, repainted after $((i * 2 + 5))s"
 }
 
 case "$1" in
@@ -114,6 +158,7 @@ case "$1" in
     stop) stop_dashboard ;;
     run) run ;;
     watch) watch_power ;;
+    repaint) screen_size && repaint ;;
     once) screen_size && fetch && draw "$IMG" flash ;;
     *) echo "usage: $0 start|stop|once" >&2; exit 2 ;;
 esac
