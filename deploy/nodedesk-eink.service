@@ -1,0 +1,16 @@
+# systemd *user* unit: runs as you, no root needed.
+#   make install            # binary + this unit + an env file to edit
+#   loginctl enable-linger  # optional: start at boot without logging in
+[Unit]
+Description=NodeDesk E-Ink dashboard server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-%h/.config/nodedesk-eink/env
+ExecStart=%h/.local/bin/nodedesk-eink
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
