@@ -64,6 +64,10 @@ run() {
     # Take the screen from the Kindle UI. Done here, not in start, because
     # stopping the UI also kills the Library launcher that called start.
     lipc-set-prop com.lab126.powerd preventScreenSaver 1
+    # The UI reopens the last active app when it comes back. Started from
+    # the Library, that is the blank script launcher, so go Home first.
+    go_home
+    sleep 3
     initctl stop lab126_gui > /dev/null 2>&1
     sleep 3 # let the framework release the screen
     screen_size
@@ -141,6 +145,8 @@ stop_dashboard() {
 # and never saw the dashboard, so it may skip repainting some areas. Once the
 # UI has drawn its status bar (the top rows are no longer blank), ask every
 # window to repaint.
+go_home() { lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home 2> /dev/null; }
+
 repaint() {
     i=0
     while [ "$(dd if=/dev/fb0 bs="$WIDTH" count=80 2> /dev/null | tr -d '\377' | wc -c)" -lt 500 ]; do
@@ -149,8 +155,12 @@ repaint() {
         sleep 2
     done
     sleep 5
+    # Safety net: never leave the user on the launcher's blank page.
+    case "$(lipc-get-prop com.lab126.appmgrd activeApp 2> /dev/null)" in
+        *shell_integration*) go_home && sleep 5 ;;
+    esac
     DISPLAY=:0 xrefresh > /dev/null 2>&1
-    log "UI back, repainted after $((i * 2 + 5))s"
+    log "UI back after $((i * 2 + 5))s ($(lipc-get-prop com.lab126.appmgrd activeApp 2> /dev/null))"
 }
 
 case "$1" in
